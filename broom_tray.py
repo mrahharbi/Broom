@@ -9,9 +9,10 @@ import schedule
 from pathlib import Path
 import shutil
 import os
+rumps.debug_mode(True)
 
 APP_NAME = "Broom"
-REFRESH_SEC = 5
+REFRESH_SEC = 3
 
 # مسارات تنظيف شائعة على macOS
 CLEAN_PATHS = [
@@ -31,7 +32,7 @@ def humanize_bytes(n):
     return f"{n:.1f} PB"
 
 def get_stats():
-    cpu = psutil.cpu_percent(interval=None)
+    cpu = psutil.cpu_percent(interval=0)
     mem = psutil.virtual_memory().percent
     disk = psutil.disk_usage("/").percent
     return cpu, mem, disk
@@ -88,9 +89,15 @@ def clean_junk():
 
 class BroomTray(rumps.App):
     def __init__(self):
-        super(BroomTray, self).__init__(APP_NAME, template=True)
-        self.icon = None  # يمكن وضع أيقونة لاحقًا .icns
+        assets_icon = Path(__file__).parent / "assets" / "broom.png"
+        if assets_icon.exists():
+            super(BroomTray, self).__init__(APP_NAME, icon=str(assets_icon), template=False)
+        else:
+            super(BroomTray, self).__init__(APP_NAME, template=False)
+            self.title = "🧹"
         self.menu = [
+            rumps.MenuItem("Open Dashboard…"),
+            None,
             rumps.MenuItem("Scan (Estimate Junk)"),
             rumps.MenuItem("Clean Now"),
             None,
@@ -110,6 +117,9 @@ class BroomTray(rumps.App):
         # خيط منفصل لتشغيل schedule بدون حجب واجهة rumps
         self.scheduler_thread = threading.Thread(target=self._run_schedule, daemon=True)
         self.scheduler_thread.start()
+
+        # Show a small dashboard on start so users see an interface right away
+        self.show_dashboard(None)
 
     def _run_schedule(self):
         while True:
@@ -150,6 +160,33 @@ class BroomTray(rumps.App):
     @rumps.clicked("Quit")
     def quit_clicked(self, _):
         rumps.quit_application()
+
+    @rumps.clicked("Open Dashboard…")
+    def show_dashboard(self, _):
+        win = rumps.Window(
+            title="Broom – Dashboard",
+            message=self._dashboard_text(),
+            default_text="",
+            ok="Close",
+            cancel=None,
+            dimensions=(360, 220),
+        )
+        win.icon = None
+        win.run()
+
+    def _dashboard_text(self):
+        cpu, mem, disk = get_stats()
+        try:
+            junk = scan_junk()
+        except Exception:
+            junk = 0
+        return (
+            f"CPU: {int(cpu)}%\n"
+            f"RAM: {int(mem)}%\n"
+            f"Disk: {int(disk)}%\n"
+            f"Estimated Junk: {humanize_bytes(junk)}\n\n"
+            "Actions:\n- Click 'Scan (Estimate Junk)' from the menu\n- Click 'Clean Now' from the menu\n"
+        )
 
     def refresh_title(self, _):
         cpu, mem, disk = get_stats()
